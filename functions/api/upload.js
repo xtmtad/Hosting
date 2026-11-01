@@ -49,7 +49,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   try {
-    // Check server configuration
+    // Check Cloudflare environment variables
     if (
       !env.GITHUB_TOKEN ||
       !env.GITHUB_OWNER ||
@@ -57,6 +57,7 @@ export async function onRequestPost({ request, env }) {
       !env.GITHUB_BRANCH
     ) {
       return json({
+        success: false,
         error: "Server upload configuration is incomplete.",
         hint: "Check GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO and GITHUB_BRANCH in Cloudflare."
       }, 500, origin);
@@ -71,11 +72,17 @@ export async function onRequestPost({ request, env }) {
     );
 
     if (!(file instanceof File)) {
-      return json({ error: "No file received." }, 400, origin);
+      return json({
+        success: false,
+        error: "No file received."
+      }, 400, origin);
     }
 
     if (!["images", "downloads"].includes(folder)) {
-      return json({ error: "Invalid upload folder." }, 400, origin);
+      return json({
+        success: false,
+        error: "Invalid upload folder."
+      }, 400, origin);
     }
 
     // Validate filename
@@ -84,7 +91,10 @@ export async function onRequestPost({ request, env }) {
       .replace(/[^a-zA-Z0-9._-]/g, "");
 
     if (!name || name.startsWith(".") || name.includes("..")) {
-      return json({ error: "Invalid filename." }, 400, origin);
+      return json({
+        success: false,
+        error: "Invalid filename."
+      }, 400, origin);
     }
 
     // Validate extension
@@ -97,11 +107,15 @@ export async function onRequestPost({ request, env }) {
     const downloadExts = ["plp", "zip"];
 
     if (folder === "images" && !imageExts.includes(ext)) {
-      return json({ error: "Unsupported image type." }, 400, origin);
+      return json({
+        success: false,
+        error: "Unsupported image type."
+      }, 400, origin);
     }
 
     if (folder === "downloads" && !downloadExts.includes(ext)) {
       return json({
+        success: false,
         error: "Only PLP and ZIP files are accepted."
       }, 400, origin);
     }
@@ -113,6 +127,7 @@ export async function onRequestPost({ request, env }) {
 
     if (file.size <= 0 || file.size > maxBytes) {
       return json({
+        success: false,
         error: `File must be between 1 byte and ${maxBytes / 1024 / 1024} MB.`
       }, 413, origin);
     }
@@ -130,8 +145,6 @@ export async function onRequestPost({ request, env }) {
     }
 
     const content = btoa(binary);
-
-    // GitHub repository path
     const path = `${folder}/${name}`;
 
     const apiUrl =
@@ -160,7 +173,7 @@ export async function onRequestPost({ request, env }) {
       })
     });
 
-    // Read GitHub response without hiding its error
+    // Read raw GitHub response
     const ghText = await gh.text();
 
     let ghData = {};
@@ -168,7 +181,7 @@ export async function onRequestPost({ request, env }) {
     try {
       ghData = JSON.parse(ghText);
     } catch {
-      ghData = { raw_response: ghText.slice(0, 500) };
+      ghData = {};
     }
 
     // Detailed GitHub error diagnostics
@@ -176,26 +189,15 @@ export async function onRequestPost({ request, env }) {
       return json({
         success: false,
         error: ghData.message || "GitHub upload failed.",
-
         github_status: gh.status,
         github_status_text: gh.statusText,
-
         github_errors: ghData.errors || [],
-        documentation_url: ghData.documentation_url || null,
-
+        raw_response: ghText.slice(0, 2000),
+        response_content_type: gh.headers.get("content-type"),
+        response_server: gh.headers.get("server"),
         request_id: gh.headers.get("x-github-request-id"),
-        rate_limit_remaining: gh.headers.get("x-ratelimit-remaining"),
-
-        hint: gh.status === 401
-          ? "GitHub token is invalid or expired."
-          : gh.status === 403
-          ? "Check token repository access, Contents write permission, organization approval or API rate limit."
-          : gh.status === 404
-          ? "Repository or target path was not found."
-          : gh.status === 409
-          ? "GitHub repository conflict. Retry the upload."
-          : "Check GitHub API response for details."
-      }, gh.status, origin);
+        rate_limit_remaining: gh.headers.get("x-ratelimit-remaining")
+      }, 502, origin);
     }
 
     // Public Cloudflare Pages URL
