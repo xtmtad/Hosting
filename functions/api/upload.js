@@ -154,12 +154,13 @@ export async function onRequestPost({ request, env }) {
     const gh = await fetch(apiUrl, {
       method: "PUT",
 
-      headers: {
-        "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json"
-      },
+headers: {
+  "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+  "Accept": "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+  "User-Agent": "PLP-Bhandar-Upload/1.0",
+  "Content-Type": "application/json"
+},
 
       body: JSON.stringify({
         message: `Upload ${name} to ${folder}`,
